@@ -50,8 +50,8 @@
 </style>
 
 <div class="ledger-header">
-  <a href="{{ route('setups.export', $setup->id) }}" class="btn btn-success btn-sm mb-2 float-end">
-  📥 Export to Excel
+  <a href="{{ route('setups.exportPdf', $setup->id) }}" class="btn btn-success btn-sm mb-2 float-end">
+  📥 Export to PDF
     </a>
   <h2>SUBSIDIARY LEDGER - SET UP</h2>
   <div class="org">DOST R02</div>

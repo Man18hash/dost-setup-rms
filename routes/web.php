@@ -73,3 +73,8 @@ Route::delete('repayments/{repayment}',               [RepaymentController::clas
 // 8) Export Setup
 Route::get('/setups/{setup}/export', [SetupController::class, 'export'])
      ->name('setups.export');
+// at the top with your other Setup routes…
+
+
+Route::get('setups/{setup}/export-pdf', [SetupController::class, 'exportPdf'])
+     ->name('setups.exportPdf');
