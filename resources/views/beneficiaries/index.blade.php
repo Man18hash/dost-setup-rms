@@ -16,7 +16,6 @@
 <table class="table table-striped mt-3">
   <thead>
     <tr>
-      <th>SPIN Number</th>
       <th>Name</th>
       <th>Owner</th>
       <th>Address</th>
@@ -26,7 +25,6 @@
   <tbody>
     @foreach($beneficiaries as $b)
     <tr>
-      <td>{{ $b->spin_number }}</td>
       <td>{{ $b->name }}</td>
       <td>{{ $b->owner }}</td>
       <td>{{ $b->address }}</td>
@@ -66,10 +64,6 @@
               </ul>
             </div>
           @endif
-          <div class="mb-3">
-            <label class="form-label">SPIN Number</label>
-            <input name="spin_number" class="form-control" required value="{{ old('spin_number') }}">
-          </div>
           <div class="mb-3">
             <label class="form-label">Name</label>
             <input name="name" class="form-control" required value="{{ old('name') }}">

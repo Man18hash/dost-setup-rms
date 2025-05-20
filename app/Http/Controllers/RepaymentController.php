@@ -10,121 +10,124 @@ use Carbon\Carbon;
 class RepaymentController extends Controller
 {
     /**
-     * Show the form to record a payment for a single schedule.
+     * Show form to record a repayment or defer.
      */
     public function create(ExpectedSchedule $expectedSchedule)
     {
-        // ✅ Load setup and its beneficiary to prevent null error
         $expectedSchedule->loadMissing('setup.beneficiary');
-
         return view('repayments.create', compact('expectedSchedule'));
     }
 
+    /**
+     * Store payment or mark as deferred.
+     */
     public function store(Request $request)
     {
         $data = $request->validate([
             'expected_schedule_id' => 'required|exists:expected_schedules,id',
-            'payment_amount'       => 'nullable|numeric',
+            'payment_amount'       => 'nullable|numeric|min:0',
             'payment_date'         => 'nullable|date',
             'or_number'            => 'nullable|string',
             'or_date'              => 'nullable|date',
-            'penalty_amount'       => 'nullable|numeric',
+            'penalty_amount'       => 'nullable|numeric|min:0',
             'returned_check'       => 'nullable|boolean',
             'deferred'             => 'nullable|boolean',
-            'deferred_date'        => 'nullable|date',
-            'pdc_number'           => 'nullable|string',
-            'pdc_date'             => 'nullable|date',
             'remarks'              => 'nullable|string|max:255',
         ]);
 
-        $data['returned_check'] = $request->has('returned_check');
-        $data['deferred']       = $request->has('deferred');
-        $data['deferred_date']  = $request->input('deferred_date');
-        $data['pdc_number']     = $request->input('pdc_number');
-        $data['pdc_date']       = $request->input('pdc_date');
+        $schedule = ExpectedSchedule::findOrFail($data['expected_schedule_id']);
+        $setup    = $schedule->setup;
+
+        // normalize
         $data['payment_amount'] = $data['payment_amount'] ?? 0;
         $data['penalty_amount'] = $data['penalty_amount'] ?? 0;
+        $data['returned_check'] = $request->has('returned_check');
+        $data['deferred']       = $request->has('deferred');
 
+        // record repayment
         $repayment = Repayment::create($data);
 
+        // handle deferral
         if ($data['deferred']) {
-            $setup = $repayment->expectedSchedule->setup;
+            // Step 1: capture original amount
+            $origAmount = $schedule->amount_due;
 
-            $lastSchedule = $setup
-                ->expectedSchedules()
-                ->orderBy('due_date', 'desc')
-                ->first();
+            // Step 2: zero out this installment
+            $schedule->update(['amount_due' => 0]);
 
-            $nextDue = Carbon::parse($lastSchedule->due_date)
-                ->addMonth()
-                ->startOfMonth();
+            // Step 3: append a new schedule one month after LAST due_date
+            $last = $setup->expectedSchedules()
+                          ->orderBy('due_date', 'desc')
+                          ->first();
+
+            $nextDue = Carbon::parse($last->due_date)
+                              ->addMonth()
+                              ->startOfMonth();
 
             $setup->expectedSchedules()->create([
                 'due_date'      => $nextDue->format('Y-m-d'),
-                'amount_due'    => $lastSchedule->amount_due,
-                'months_lapsed' => now()->diffInMonths($nextDue),
+                'amount_due'    => $origAmount,
+                'months_lapsed' => max(0, $nextDue->diffInMonths(now())),
             ]);
         }
 
         return redirect()
-            ->route('setups.show', $repayment->expectedSchedule->setup_id)
-            ->with('success', 'Repayment recorded.');
+            ->route('setups.show', $setup->id)
+            ->with('success','Repayment recorded.');
     }
 
     public function edit(Repayment $repayment)
     {
         $expectedSchedule = $repayment->expectedSchedule;
-        return view('repayments.edit', compact('repayment', 'expectedSchedule'));
+        return view('repayments.edit', compact('repayment','expectedSchedule'));
     }
 
     public function update(Request $request, Repayment $repayment)
     {
         $data = $request->validate([
-            'payment_amount'       => 'nullable|numeric',
+            'payment_amount'       => 'nullable|numeric|min:0',
             'payment_date'         => 'nullable|date',
             'or_number'            => 'nullable|string',
             'or_date'              => 'nullable|date',
-            'penalty_amount'       => 'nullable|numeric',
+            'penalty_amount'       => 'nullable|numeric|min:0',
             'returned_check'       => 'nullable|boolean',
             'deferred'             => 'nullable|boolean',
-            'deferred_date'        => 'nullable|date',
-            'pdc_number'           => 'nullable|string',
-            'pdc_date'             => 'nullable|date',
             'remarks'              => 'nullable|string|max:255',
         ]);
 
-        $data['returned_check'] = $request->has('returned_check');
-        $data['deferred']       = $request->has('deferred');
-        $data['deferred_date']  = $request->input('deferred_date');
-        $data['pdc_number']     = $request->input('pdc_number');
-        $data['pdc_date']       = $request->input('pdc_date');
         $data['payment_amount'] = $data['payment_amount'] ?? 0;
         $data['penalty_amount'] = $data['penalty_amount'] ?? 0;
+        $data['returned_check'] = $request->has('returned_check');
+        $data['deferred']       = $request->has('deferred');
 
         $repayment->update($data);
 
+        // If toggled to deferred again, repeat logic
         if ($data['deferred']) {
-            $setup = $repayment->expectedSchedule->setup;
+            $schedule = $repayment->expectedSchedule;
+            $setup    = $schedule->setup;
 
-            $lastSchedule = $setup
-                ->expectedSchedules()
-                ->orderBy('due_date', 'desc')
-                ->first();
+            $origAmount = $schedule->amount_due;
+            $schedule->update(['amount_due' => 0]);
 
-            $nextDue = Carbon::parse($lastSchedule->due_date)
-                ->addMonth()
-                ->startOfMonth();
+            $last = $setup->expectedSchedules()
+                          ->orderBy('due_date','desc')
+                          ->first();
+
+            $nextDue = Carbon::parse($last->due_date)
+                              ->addMonth()
+                              ->startOfMonth();
 
             $setup->expectedSchedules()->create([
                 'due_date'      => $nextDue->format('Y-m-d'),
-                'amount_due'    => $lastSchedule->amount_due,
-                'months_lapsed' => now()->diffInMonths($nextDue),
+                'amount_due'    => $origAmount,
+                'months_lapsed' => max(0, $nextDue->diffInMonths(now())),
             ]);
         }
 
         return redirect()
             ->route('setups.show', $repayment->expectedSchedule->setup_id)
-            ->with('success', 'Repayment updated.');
+            ->with('success','Repayment updated.');
     }
 
     public function destroy(Repayment $repayment)
@@ -133,7 +136,7 @@ class RepaymentController extends Controller
         $repayment->delete();
 
         return redirect()
-            ->route('setups.show', $setupId)
-            ->with('success', 'Repayment deleted.');
+            ->route('setups.show',$setupId)
+            ->with('success','Repayment deleted.');
     }
 }

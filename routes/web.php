@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
+use App\Models\Province;
 use App\Models\Beneficiary;
 use App\Models\Setup;
 use App\Models\Repayment;
@@ -8,6 +10,7 @@ use App\Http\Controllers\ProvinceController;
 use App\Http\Controllers\BeneficiaryController;
 use App\Http\Controllers\SetupController;
 use App\Http\Controllers\RepaymentController;
+use App\Http\Controllers\BackupController;
 
 /*
 |--------------------------------------------------------------------------
@@ -15,32 +18,73 @@ use App\Http\Controllers\RepaymentController;
 |--------------------------------------------------------------------------
 */
 
-// 1) Home → projects.index
-Route::get('/', fn() => redirect()->route('projects.index'))->name('home');
+// 1) Home → redirect straight to dashboard
+Route::redirect('/', '/dashboard')->name('home');
 
-// 2) Dashboard
-Route::get('/dashboard', function () {
-    $totalBeneficiaries = Beneficiary::count();
-    $activeSetups       = Setup::whereDate('refund_end', '>=', now())->count();
-    $setups             = Setup::withSum('repayments', 'payment_amount')->get();
-    $fullyPaid          = $setups->filter(fn($s) =>
+// 2) Dashboard (with optional province filter)
+Route::get('/dashboard', function (Request $request) {
+    // -- Province dropdown & filter value
+    $provinces  = Province::orderBy('name')->get();
+    $provinceId = $request->get('province_id');
+
+    // -- Base setups query (summing repayments)
+    $setupsQuery = Setup::withSum('repayments', 'payment_amount')
+                        ->when($provinceId, fn($q) => $q->where('province_id', $provinceId));
+
+    // 1) Summary counts
+    $totalBeneficiaries = Beneficiary::when($provinceId, fn($q) =>
+        $q->whereHas('setups', fn($q) =>
+            $q->where('province_id', $provinceId)
+        )
+    )->count();
+
+    $activeSetups = (clone $setupsQuery)
+                        ->whereDate('refund_end', '>=', now())
+                        ->count();
+
+    $allSetups = $setupsQuery->get();
+    $fullyPaid = $allSetups->filter(fn($s) =>
         $s->repayments_sum_payment_amount >= $s->amount_assisted
     )->count();
 
-    $monthly = Repayment::selectRaw(
-        "DATE_FORMAT(payment_date, '%b %Y') AS month, SUM(payment_amount) AS total"
-    )
-    ->groupBy('month')
-    ->orderBy('payment_date')
-    ->pluck('total', 'month');
+    // 2) Monthly collection data
+    $monthlyRaw = Repayment::selectRaw(
+            "DATE_FORMAT(payment_date, '%b %Y') AS month, SUM(payment_amount) AS total"
+        )
+        ->when($provinceId, fn($q) =>
+            $q->whereHas('setup', fn($q) =>
+                $q->where('province_id', $provinceId)
+            )
+        )
+        ->groupBy('month')
+        ->orderBy('payment_date')
+        ->get();
 
-    return view('dashboard', [
-        'totalBeneficiaries' => $totalBeneficiaries,
-        'activeSetups'       => $activeSetups,
-        'fullyPaid'          => $fullyPaid,
-        'chartLabels'        => $monthly->keys(),
-        'chartData'          => $monthly->values(),
-    ]);
+    $chartLabels = $monthlyRaw->pluck('month');
+    $chartData   = $monthlyRaw->pluck('total');
+
+    // 3) Build list of all payers with totals, sorted desc
+    $payers = Repayment::with('setup.beneficiary')
+        ->when($provinceId, fn($q) =>
+            $q->whereHas('setup', fn($q) =>
+                $q->where('province_id', $provinceId)
+            )
+        )
+        ->get()
+        ->groupBy(fn($r) => $r->setup->beneficiary->name)
+        ->map(fn($group, $name) => [
+            'name' => $name,
+            'paid' => $group->sum('payment_amount'),
+        ])
+        ->sortByDesc('paid')
+        ->values();
+
+    return view('dashboard', compact(
+        'provinces','provinceId',
+        'totalBeneficiaries','activeSetups','fullyPaid',
+        'chartLabels','chartData',
+        'payers'
+    ));
 })->name('dashboard');
 
 // 3) Combined Beneficiary & Setup landing
@@ -71,10 +115,19 @@ Route::delete('repayments/{repayment}',               [RepaymentController::clas
      ->name('repayments.destroy');
 
 // 8) Export Setup
-Route::get('/setups/{setup}/export', [SetupController::class, 'export'])
+Route::get('/setups/{setup}/export',     [SetupController::class, 'export'])
      ->name('setups.export');
-// at the top with your other Setup routes…
-
-
-Route::get('setups/{setup}/export-pdf', [SetupController::class, 'exportPdf'])
+Route::get('/setups/{setup}/export-pdf', [SetupController::class, 'exportPdf'])
      ->name('setups.exportPdf');
+
+// 9) Backup download (protected)
+Route::get('backup/download', [BackupController::class, 'download'])
+     ->name('backup.download')
+     ->middleware('auth');
+// in routes/web.php
+Route::resource('setups', SetupController::class);
+// step 2 – the custom schedule form & submit
+Route::get('setups/{setup}/schedule/customize', [SetupController::class, 'showCustomizeSchedule'])
+     ->name('setups.schedule.customize');
+Route::post('setups/{setup}/schedule/customize', [SetupController::class, 'saveCustomizeSchedule'])
+     ->name('setups.schedule.customize.save');

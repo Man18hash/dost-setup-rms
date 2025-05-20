@@ -28,10 +28,9 @@ class BeneficiaryController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'spin_number' => 'required|string|unique:beneficiaries,spin_number',
-            'name'        => 'required|string',
-            'owner'       => 'nullable|string',
-            'address'     => 'nullable|string',
+            'name'    => 'required|string',
+            'owner'   => 'nullable|string',
+            'address' => 'nullable|string',
         ]);
 
         Beneficiary::create($data);
@@ -42,7 +41,7 @@ class BeneficiaryController extends Controller
     }
 
     /**
-     * Edit form.
+     * Show the form for editing a beneficiary.
      */
     public function edit(Beneficiary $beneficiary)
     {
@@ -55,10 +54,9 @@ class BeneficiaryController extends Controller
     public function update(Request $request, Beneficiary $beneficiary)
     {
         $data = $request->validate([
-            'spin_number' => "required|string|unique:beneficiaries,spin_number,{$beneficiary->id}",
-            'name'        => 'required|string',
-            'owner'       => 'nullable|string',
-            'address'     => 'nullable|string',
+            'name'    => 'required|string',
+            'owner'   => 'nullable|string',
+            'address' => 'nullable|string',
         ]);
 
         $beneficiary->update($data);

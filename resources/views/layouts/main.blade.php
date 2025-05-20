@@ -74,7 +74,11 @@
         <li class="nav-item"><a class="nav-link" href="{{ route('dashboard') }}">Dashboard</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ route('beneficiary-setup') }}">Beneficiary/Setup</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ route('setups.index') }}">Setup</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ route('projects.index') }}">Projects</a></li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ route('backup.download') }}">
+            <i class="bi bi-save2"></i> Backup DB
+          </a>
+        </li>
       </ul>
     </div>
   </div>

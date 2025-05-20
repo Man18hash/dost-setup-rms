@@ -20,11 +20,6 @@
     font-size: 1.1em;
     margin-bottom: 12px;
   }
-  .ledger-header .start-btn {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-  }
   .ledger-info {
     display: flex;
     margin-bottom: 8px;
@@ -50,9 +45,18 @@
 </style>
 
 <div class="ledger-header">
-  <a href="{{ route('setups.exportPdf', $setup->id) }}" class="btn btn-success btn-sm mb-2 float-end">
-  📥 Export to PDF
-    </a>
+  <!-- Export PDF -->
+  <a href="{{ route('setups.exportPdf', $setup->id) }}"
+     class="btn btn-success btn-sm mb-2 float-end">
+    📥 Export to PDF
+  </a>
+
+  <!-- Customize Schedule -->
+  <a href="{{ route('setups.schedule.customize', $setup) }}"
+     class="btn btn-outline-primary btn-sm mb-2 me-2 float-end">
+    ⚙️ Customize Schedule
+  </a>
+
   <h2>SUBSIDIARY LEDGER - SET UP</h2>
   <div class="org">DOST R02</div>
 
@@ -105,25 +109,49 @@
     </tr>
   </thead>
   <tbody>
-    @php $running = $setup->amount_assisted; @endphp
+    @php
+      $running    = $setup->amount_assisted;
+      $now        = \Carbon\Carbon::now();
+      $pastDueSum = 0;
+    @endphp
 
-    @foreach($setup->expectedSchedules as $sch)
+    {{-- Sort by due_date asc, then by id asc so deferred clones follow originals --}}
+    @foreach($setup->expectedSchedules->sortBy('due_date')->sortBy('id') as $sch)
       @php
-        $last = $sch->repayments->last();
-        $paid = $last->payment_amount  ?? 0;
-        $pen  = $last->penalty_amount  ?? 0;
-        $running = $running - $paid + $pen;
+        // clamp future months_lapsed to zero
+        $diff   = \Carbon\Carbon::parse($sch->due_date)->diffInMonths($now, false);
+        $lapsed = max(0, $diff);
+
+        // gather repayments
+        $reps   = $sch->repayments;
+        $paid   = $reps->sum('payment_amount');
+        $pen    = $reps->sum('penalty_amount');
+
+        // payment covers scheduled first, then penalty
+        $excess = max(0, $paid - $sch->amount_due);
+        $towPen = min($excess, $pen);
+        $outPen = $pen - $towPen;
+
+        // update running balance
+        $running -= $paid;
+        $running += $outPen;
+
+        // accumulate past due if due_date <= today
+        if ($now->gte($sch->due_date)) {
+          $pastDueSum += ($sch->amount_due + $pen - $paid);
+        }
+
+        $last = $reps->last();
       @endphp
+
       <tr>
-        <td class="text-center">
-          {{ \Carbon\Carbon::parse($sch->due_date)->format('M-Y') }}
-        </td>
+        <td class="text-center">{{ \Carbon\Carbon::parse($sch->due_date)->format('M-Y') }}</td>
         <td class="text-end">₱{{ number_format($sch->amount_due,2) }}</td>
-        <td class="text-center">{{ $sch->months_lapsed }}</td>
-        <td class="text-end">{{ $pen? '₱'.number_format($pen,2) : '-' }}</td>
-        <td class="text-end">{{ $paid? '₱'.number_format($paid,2) : '-' }}</td>
+        <td class="text-center">{{ $lapsed }}</td>
+        <td class="text-end">{{ $pen ? '₱'.number_format($pen,2) : '-' }}</td>
+        <td class="text-end">{{ $paid ? '₱'.number_format($paid,2) : '-' }}</td>
         <td class="text-center">
-          @if($last)
+          @if($last && $last->or_number)
             {{ $last->or_number }}<br>
             {{ optional($last->or_date)->format('d/m/Y') }}
           @else
@@ -141,12 +169,10 @@
             -
           @endif
         </td>
+        <td class="text-center">{{ ($last && $last->deferred) ? 'Yes' : '-' }}</td>
         <td class="text-center">
-          {{ ($last && $last->deferred) ? 'Yes' : '-' }}
-        </td>
-        <td class="text-center">
-          {{ $last && $last->deferred_date 
-               ? \Carbon\Carbon::parse($last->deferred_date)->format('d/m/Y') 
+          {{ $last && $last->deferred_date
+               ? \Carbon\Carbon::parse($last->deferred_date)->format('d/m/Y')
                : '-' }}
         </td>
         <td>{{ $last->remarks ?? '-' }}</td>
@@ -171,24 +197,22 @@
 </table>
 
 {{-- Summary Totals --}}
+@php
+  $totalBorrowed  = $setup->amount_assisted;
+  $totalRemaining = $running;
+@endphp
+
 <div class="mt-4 p-3 border rounded bg-light">
   <h5 class="mb-3"><strong>Summary</strong></h5>
   <div class="row mb-2">
     <div class="col-md-3"><strong>Total Amount Assisted:</strong></div>
-    <div class="col-md-3 text-end">₱{{ number_format($totalBorrowed, 2) }}</div>
-
-    <div class="col-md-3"><strong>Total Amount Due:</strong></div>
-    <div class="col-md-3 text-end">₱{{ number_format($totalScheduled, 2) }}</div>
-  </div>
-
-  <div class="row mb-2">
+    <div class="col-md-3 text-end">₱{{ number_format($totalBorrowed,2) }}</div>
     <div class="col-md-3"><strong>Total Past Due:</strong></div>
-    <div class="col-md-3 text-end">₱{{ number_format($pastDue, 2) }}</div>
-
+    <div class="col-md-3 text-end">₱{{ number_format($pastDueSum,2) }}</div>
+  </div>
+  <div class="row">
     <div class="col-md-3"><strong>Total Remaining to Pay:</strong></div>
-    <div class="col-md-3 text-end">
-      ₱{{ number_format(($totalScheduled + $totalPenalties - $totalPaid), 2) }}
-    </div>
+    <div class="col-md-3 text-end">₱{{ number_format($totalRemaining,2) }}</div>
   </div>
 </div>
 
