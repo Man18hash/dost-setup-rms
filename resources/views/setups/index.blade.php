@@ -58,13 +58,30 @@
           – 
           {{ \Carbon\Carbon::parse($setup->refund_end)->format('M Y') }}
         </td>
-        <td>
+        <td class="d-flex flex-wrap gap-1">
           <a href="{{ route('setups.show', $setup) }}" class="btn btn-sm btn-info">View</a>
           <a href="{{ route('setups.edit', $setup) }}" class="btn btn-sm btn-warning">Edit</a>
-          <form action="{{ route('setups.destroy', $setup) }}" method="POST" class="d-inline" onsubmit="return confirm('Delete this setup?')">
-            @csrf @method('DELETE')
+
+          <form action="{{ route('setups.destroy', $setup) }}" method="POST" class="d-inline"
+                onsubmit="return confirm('Delete this setup?')">
+            @csrf
+            @method('DELETE')
             <button class="btn btn-sm btn-danger">Delete</button>
           </form>
+
+          @if($setup->active)
+            <form action="{{ route('setups.deactivate', $setup) }}" method="POST" class="d-inline"
+                  onsubmit="return confirm('Are you sure you want to deactivate this setup?')">
+              @csrf
+              <button class="btn btn-sm btn-secondary">Deactivate</button>
+            </form>
+          @else
+            <form action="{{ route('setups.activate', $setup) }}" method="POST" class="d-inline"
+                  onsubmit="return confirm('Activate this setup?')">
+              @csrf
+              <button class="btn btn-sm btn-success">Activate</button>
+            </form>
+          @endif
         </td>
       </tr>
     @empty

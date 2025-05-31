@@ -71,12 +71,13 @@
     </button>
     <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
       <ul class="navbar-nav align-items-center">
+        <li class="nav-item"><a class="nav-link" href="{{ route('reports') }}">Reports</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ route('dashboard') }}">Dashboard</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ route('beneficiary-setup') }}">Beneficiary/Setup</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ route('setups.index') }}">Setup</a></li>
         <li class="nav-item">
           <a class="nav-link" href="{{ route('backup.download') }}">
-            <i class="bi bi-save2"></i> Backup DB
+            <i class="bi bi-save2"></i>
           </a>
         </li>
       </ul>

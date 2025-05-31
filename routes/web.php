@@ -6,11 +6,14 @@ use App\Models\Province;
 use App\Models\Beneficiary;
 use App\Models\Setup;
 use App\Models\Repayment;
+use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\ProvinceController;
 use App\Http\Controllers\BeneficiaryController;
 use App\Http\Controllers\SetupController;
 use App\Http\Controllers\RepaymentController;
 use App\Http\Controllers\BackupController;
+
+
 
 /*
 |--------------------------------------------------------------------------
@@ -21,40 +24,43 @@ use App\Http\Controllers\BackupController;
 // 1) Home → redirect straight to dashboard
 Route::redirect('/', '/dashboard')->name('home');
 
-// 2) Dashboard (with optional province filter)
+// 2) Dashboard (with optional province filter, only active setups, shows count of deactivated)
 Route::get('/dashboard', function (Request $request) {
-    // -- Province dropdown & filter value
     $provinces  = Province::orderBy('name')->get();
     $provinceId = $request->get('province_id');
 
-    // -- Base setups query (summing repayments)
-    $setupsQuery = Setup::withSum('repayments', 'payment_amount')
+    // Base query for active setups
+    $activeQuery = Setup::where('active', true)
                         ->when($provinceId, fn($q) => $q->where('province_id', $provinceId));
 
-    // 1) Summary counts
+    // Summary counts
     $totalBeneficiaries = Beneficiary::when($provinceId, fn($q) =>
         $q->whereHas('setups', fn($q) =>
             $q->where('province_id', $provinceId)
+              ->where('active', true)
         )
     )->count();
 
-    $activeSetups = (clone $setupsQuery)
-                        ->whereDate('refund_end', '>=', now())
-                        ->count();
+    $activeSetups      = $activeQuery->count();
+    $deactivatedSetups = Setup::where('active', false)
+                              ->when($provinceId, fn($q) => $q->where('province_id', $provinceId))
+                              ->count();
 
-    $allSetups = $setupsQuery->get();
-    $fullyPaid = $allSetups->filter(fn($s) =>
-        $s->repayments_sum_payment_amount >= $s->amount_assisted
-    )->count();
+    $fullyPaid = $activeQuery
+                    ->withSum('repayments', 'payment_amount')
+                    ->get()
+                    ->filter(fn($s) =>
+                        $s->repayments_sum_payment_amount >= $s->amount_assisted
+                    )
+                    ->count();
 
-    // 2) Monthly collection data
+    // Monthly collection (only active setups)
     $monthlyRaw = Repayment::selectRaw(
             "DATE_FORMAT(payment_date, '%b %Y') AS month, SUM(payment_amount) AS total"
         )
-        ->when($provinceId, fn($q) =>
-            $q->whereHas('setup', fn($q) =>
-                $q->where('province_id', $provinceId)
-            )
+        ->whereHas('setup', fn($q) =>
+            $q->where('active', true)
+              ->when($provinceId, fn($q2) => $q2->where('province_id', $provinceId))
         )
         ->groupBy('month')
         ->orderBy('payment_date')
@@ -63,12 +69,11 @@ Route::get('/dashboard', function (Request $request) {
     $chartLabels = $monthlyRaw->pluck('month');
     $chartData   = $monthlyRaw->pluck('total');
 
-    // 3) Build list of all payers with totals, sorted desc
+    // Payers ranking (only active setups)
     $payers = Repayment::with('setup.beneficiary')
-        ->when($provinceId, fn($q) =>
-            $q->whereHas('setup', fn($q) =>
-                $q->where('province_id', $provinceId)
-            )
+        ->whereHas('setup', fn($q) =>
+            $q->where('active', true)
+              ->when($provinceId, fn($q2) => $q2->where('province_id', $provinceId))
         )
         ->get()
         ->groupBy(fn($r) => $r->setup->beneficiary->name)
@@ -80,9 +85,14 @@ Route::get('/dashboard', function (Request $request) {
         ->values();
 
     return view('dashboard', compact(
-        'provinces','provinceId',
-        'totalBeneficiaries','activeSetups','fullyPaid',
-        'chartLabels','chartData',
+        'provinces',
+        'provinceId',
+        'totalBeneficiaries',
+        'activeSetups',
+        'deactivatedSetups',
+        'fullyPaid',
+        'chartLabels',
+        'chartData',
         'payers'
     ));
 })->name('dashboard');
@@ -120,14 +130,22 @@ Route::get('/setups/{setup}/export',     [SetupController::class, 'export'])
 Route::get('/setups/{setup}/export-pdf', [SetupController::class, 'exportPdf'])
      ->name('setups.exportPdf');
 
-// 9) Backup download (protected)
+// 9) Custom Schedule form & submit
+Route::get('setups/{setup}/schedule/customize',     [SetupController::class, 'showCustomizeSchedule'])
+     ->name('setups.schedule.customize');
+Route::post('setups/{setup}/schedule/customize',    [SetupController::class, 'saveCustomizeSchedule'])
+     ->name('setups.schedule.customize.save');
+
+// 10) Activate / Deactivate buttons
+Route::post('setups/{setup}/activate',   [SetupController::class, 'activate'])
+     ->name('setups.activate');
+Route::post('setups/{setup}/deactivate', [SetupController::class, 'deactivate'])
+     ->name('setups.deactivate');
+
+// 11) Backup download (protected)
 Route::get('backup/download', [BackupController::class, 'download'])
      ->name('backup.download')
      ->middleware('auth');
-// in routes/web.php
-Route::resource('setups', SetupController::class);
-// step 2 – the custom schedule form & submit
-Route::get('setups/{setup}/schedule/customize', [SetupController::class, 'showCustomizeSchedule'])
-     ->name('setups.schedule.customize');
-Route::post('setups/{setup}/schedule/customize', [SetupController::class, 'saveCustomizeSchedule'])
-     ->name('setups.schedule.customize.save');
+// Reports page & export
+Route::get('reports',           [ReportsController::class, 'index'])     ->name('reports');
+Route::get('reports/export-pdf',[ReportsController::class, 'exportPdf'])->name('reports.exportPdf');

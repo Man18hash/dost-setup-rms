@@ -143,7 +143,12 @@ class SetupController extends Controller
         $pdf = PDF::loadView('setups.pdf', $data)
                   ->setPaper('a4', 'portrait');
 
-        return $pdf->download("Subsidiary-Ledger-Setup-{$setup->id}.pdf");
+        // Build filename: BeneficiaryName_ProjectTitle.pdf
+        $nameSafe  = preg_replace('/[^A-Za-z0-9_\-]/', '_', $setup->beneficiary->name);
+        $titleSafe = preg_replace('/[^A-Za-z0-9_\-]/', '_', $setup->project_title);
+        $filename  = "{$nameSafe}_{$titleSafe}.pdf";
+
+        return $pdf->download($filename);
     }
 
     public function edit(Setup $setup)
@@ -186,6 +191,24 @@ class SetupController extends Controller
         return redirect()
             ->route('setups.index')
             ->with('success', 'Setup and its schedule deleted.');
+    }
+
+    /**
+     * Activate a Setup.
+     */
+    public function activate(Setup $setup)
+    {
+        $setup->update(['active' => true]);
+        return back()->with('success', 'Setup re-activated.');
+    }
+
+    /**
+     * Deactivate a Setup.
+     */
+    public function deactivate(Setup $setup)
+    {
+        $setup->update(['active' => false]);
+        return back()->with('success', 'Setup deactivated.');
     }
 
     /**

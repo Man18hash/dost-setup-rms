@@ -19,7 +19,24 @@ class Setup extends Model
         'check_date',
         'refund_start',
         'refund_end',
+        'active',                // ← newly added
     ];
+
+    /**
+     * Scope a query to only active setups.
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('active', true);
+    }
+
+    /**
+     * Scope a query to only inactive setups.
+     */
+    public function scopeInactive($query)
+    {
+        return $query->where('active', false);
+    }
 
     /**
      * The beneficiary for this setup.
